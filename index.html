@@ -26,6 +26,8 @@ body{background:var(--grass);color:var(--ink);font-family:var(--body);font-size:
 .row > *{pointer-events:auto}
 .chip{background:var(--paper);border:2px solid var(--ink);border-radius:999px;padding:6px 14px;box-shadow:3px 3px 0 var(--ink);
   font-family:var(--display);font-size:15px;line-height:1.2;display:flex;align-items:center;gap:8px;min-width:0}
+.chip,.btn{white-space:nowrap}
+.row{flex-wrap:wrap}
 .chip small{font-family:var(--body);font-size:12px;opacity:.8;white-space:nowrap}
 .btn{font-family:var(--display);font-size:15px;color:var(--ink);background:var(--sun);border:2px solid var(--ink);border-radius:999px;
   padding:7px 14px;box-shadow:3px 3px 0 var(--ink);cursor:pointer}
@@ -42,6 +44,12 @@ body{background:var(--grass);color:var(--ink);font-family:var(--body);font-size:
 #toast{align-self:center;font-family:var(--display);font-size:18px;background:var(--sun);border:2px solid var(--ink);border-radius:999px;
   padding:6px 16px;box-shadow:3px 3px 0 var(--ink);transition:opacity .3s}
 .spacer{flex:1;pointer-events:none}
+#chat{margin-left:126px;max-width:420px;display:flex;flex-direction:column;gap:6px;pointer-events:none}
+#chatLog{display:flex;flex-direction:column;gap:3px;align-items:flex-start}
+#chatLog div{background:rgba(43,42,76,.78);color:var(--paper);border-radius:10px;padding:3px 9px;font-size:13px;max-width:100%;overflow-wrap:anywhere;-webkit-user-select:text;user-select:text}
+#chatLog b{font-family:var(--display);font-weight:400;color:var(--sun);margin-right:6px}
+#chatForm{display:flex;gap:6px;pointer-events:auto}
+#chatInput{flex:1;min-width:0;box-sizing:border-box;font:inherit;font-size:16px;padding:7px 12px;border:2px solid var(--ink);border-radius:999px;background:var(--paper);color:var(--ink);box-shadow:3px 3px 0 var(--ink);-webkit-user-select:text;user-select:text}
 .bottom{display:flex;justify-content:flex-end;align-items:flex-end;gap:8px;pointer-events:none;flex-wrap:wrap}
 .bottom > *{pointer-events:auto}
 #act{margin-right:auto;margin-left:126px}
@@ -63,7 +71,7 @@ body{background:var(--grass);color:var(--ink);font-family:var(--body);font-size:
 .hats .btn[aria-pressed="true"]{background:var(--mint)}
 .cardrow{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
 ul.how{margin:0;padding-left:18px;line-height:1.6;font-size:14px}
-@media (max-width:480px){.chip{font-size:13px;padding:5px 10px}.btn{font-size:14px;padding:6px 11px}#banner b{font-size:16px}}
+@media (max-width:480px){.chip .ttl{display:none}.chip small{font-size:12px;opacity:1}.chip{font-size:13px;padding:5px 10px}.btn{font-size:14px;padding:6px 11px}#banner b{font-size:16px}}
 </style>
 </head>
 <body>
@@ -73,7 +81,7 @@ ul.how{margin:0;padding-left:18px;line-height:1.6;font-size:14px}
 
 <div class="hud">
   <div class="row">
-    <div class="chip"><span>모여라 광장</span><small id="count">입장 중</small></div>
+    <div class="chip"><span class="ttl">모여라 광장</span><small id="count">입장 중</small></div>
     <div class="row" style="gap:6px">
       <div class="chip"><span class="coin"></span><span id="coins">0</span></div>
       <button class="btn plain" id="openShop" type="button">꾸미기</button>
@@ -83,6 +91,13 @@ ul.how{margin:0;padding-left:18px;line-height:1.6;font-size:14px}
   <div id="banner" hidden><b id="bTitle"></b><span id="bSub"></span></div>
   <div id="toast" hidden></div>
   <div class="spacer"></div>
+  <div id="chat">
+    <div id="chatLog" aria-live="polite"></div>
+    <form id="chatForm">
+      <input id="chatInput" maxlength="32" autocomplete="off" placeholder="채팅 입력 (Enter)" aria-label="채팅 입력">
+      <button class="btn" type="submit">보내기</button>
+    </form>
+  </div>
   <div class="bottom">
     <button class="btn coral" id="act" type="button" hidden>소원 등불 띄우기</button>
     <div class="emotes">
@@ -147,7 +162,7 @@ ul.how{margin:0;padding-left:18px;line-height:1.6;font-size:14px}
 </div>
 
 <script src="vendor/supabase.js?v=3"></script>
-<script src="config.js?v=3"></script>
+<script src="config.js?v=4"></script>
 <script>
 (function(){
 "use strict";
@@ -310,6 +325,25 @@ $("wishCancel").addEventListener("click",function(){$("wishBox").hidden=true;});
 $("wishForm").addEventListener("submit",function(e){e.preventDefault();var t=$("wishText").value.trim().slice(0,20);
   if(t){addLantern(me.x,me.y-40,t);myWish=t;myWishTs=Date.now();toast("등불을 띄웠어요");}
   $("wishBox").hidden=true;});
+/* ---------- chat ---------- */
+var BAD=["시발","씨발","ㅅㅂ","병신","좆","새끼","fuck","shit"],lastChatAt=0,chatLines=[];
+function cleanChat(t){t=String(t==null?"":t).replace(/\s+/g," ").trim().slice(0,32);
+  BAD.forEach(function(w){t=t.split(w).join("♡♡");});return t;}
+function showChat(name,text,who){
+  if(who){who.say=text;who.sayUntil=Date.now()+5000;}
+  var el=document.createElement("div"),b=document.createElement("b");b.textContent=name;el.appendChild(b);el.appendChild(document.createTextNode(text));
+  $("chatLog").appendChild(el);chatLines.push({el:el,until:Date.now()+15000});
+  while(chatLines.length>5){var o=chatLines.shift();if(o.el.parentNode)o.el.parentNode.removeChild(o.el);}
+}
+setInterval(function(){var now=Date.now();while(chatLines.length&&chatLines[0].until<now){var o=chatLines.shift();if(o.el.parentNode)o.el.parentNode.removeChild(o.el);}},1000);
+onChatMsg=function(id,n,t){t=cleanChat(t);if(!t)return;var st=peerState.get(id);showChat(String(n==null?"친구":n).slice(0,8),t,st||null);};
+$("chatForm").addEventListener("submit",function(e){e.preventDefault();
+  var inp=$("chatInput"),t=cleanChat(inp.value);
+  if(!me.joined||!t)return;
+  var now=Date.now();if(now-lastChatAt<1000){toast("조금 천천히 보내 주세요");return;}
+  lastChatAt=now;inp.value="";inp.blur();showChat(me.name,t,me);
+  if(netSend)netSend("c",{n:me.name,t:t});});
+addEventListener("keydown",function(e){if(e.key==="Enter"&&me.joined&&document.activeElement!==$("chatInput")&&$("shop").hidden&&$("wishBox").hidden){e.preventDefault();$("chatInput").focus();}});
 $("nick").value=load("name","")||("몽글이"+Math.floor(10+Math.random()*90));
 swatches($("introColors"));
 $("introForm").addEventListener("submit",function(e){e.preventDefault();
@@ -318,7 +352,7 @@ $("introForm").addEventListener("submit",function(e){e.preventDefault();
 setCoins(coins);
 
 /* ---------- multiplayer: Supabase Realtime (anyone with the link) ---------- */
-var CFG=window.MOYEORA_CONFIG||{},roomBase="plaza",netState="solo";
+var CFG=window.MOYEORA_CONFIG||{},roomBase="plaza",netState="solo",netSend=null,onChatMsg=null;
 (function(){
   var params=new URLSearchParams(location.search);
   roomBase=(params.get("room")||"plaza").toLowerCase().replace(/[^a-z0-9-]/g,"").slice(0,20)||"plaza";
@@ -332,6 +366,7 @@ var CFG=window.MOYEORA_CONFIG||{},roomBase="plaza",netState="solo";
     var c=client.channel("moyeora:"+roomBase+":"+n,{config:{broadcast:{self:false},presence:{key:myId}}});
     var moved=false;
     c.on("broadcast",{event:"p"},function(m){var d=m&&m.payload;if(!d||typeof d.id!=="string"||d.id===myId)return;remote[d.id]={t:Date.now(),p:d};});
+    c.on("broadcast",{event:"c"},function(m){var d=m&&m.payload;if(!d||typeof d.id!=="string"||d.id===myId)return;if(onChatMsg)onChatMsg(d.id,d.n,d.t);});
     c.on("presence",{event:"sync"},function(){});
     c.subscribe(function(st){
       if(moved)return;
@@ -347,6 +382,7 @@ var CFG=window.MOYEORA_CONFIG||{},roomBase="plaza",netState="solo";
     });
   }
   join();
+  netSend=function(ev,p){if(!ch)return;p.id=myId;try{ch.send({type:"broadcast",event:ev,payload:p});}catch(e){}};
   var last="",lastAt=0;
   setInterval(function(){
     if(!ch||!me.joined)return;
@@ -472,7 +508,7 @@ function update(dt,now){
   $("act").hidden=mz!=="wish";
   if(toastUntil&&now>toastUntil){$("toast").hidden=true;toastUntil=0;}
   var total=(me.joined?1:0)+bots.length+peerState.size;
-  var ct="지금 "+total+"명 (봇 "+bots.length+") · "+({solo:"혼자 모드",connecting:"연결 중",online:"온라인",error:"연결 안 됨"}[netState]||"");
+  var ct=total+"명 (봇 "+bots.length+") · "+({solo:"혼자 모드",connecting:"연결 중",online:"온라인",error:"연결 안 됨"}[netState]||"");
   if($("count").textContent!==ct)$("count").textContent=ct;
   return{ox:ox,sr:sr,tg:tg,wisps:wisps,mz:mz};
 }
@@ -574,7 +610,11 @@ function drawChar(e,now,isMe,ghost){
   ctx.save();ctx.translate(x,hy0-18);ctx.scale(1.2,1.2);drawHat(e.h|0,0,0);ctx.restore();
   if(isMe){ctx.fillStyle=CORAL;ctx.strokeStyle=INK;ctx.lineWidth=2.5;var ty=y-104-bob+Math.sin(now/200)*3;ctx.beginPath();ctx.moveTo(x-8,ty);ctx.lineTo(x+8,ty);ctx.lineTo(x,ty+10);ctx.closePath();ctx.fill();ctx.stroke();}
   label(e.name||"",x,y+17,14,INK,PAPER);
-  if(e.emote>=0&&now<e.emoteUntil){var t=EMOTES[e.emote]||"";ctx.font="15px "+FONT;var w=ctx.measureText(t).width+20,by=y-122-bob;
+  if(e.say&&now<e.sayUntil){var l1=e.say.slice(0,16),l2=e.say.slice(16),bh=l2?44:28;ctx.font="14px "+FONT;
+    var bw=Math.max(ctx.measureText(l1).width,ctx.measureText(l2).width)+22,bb=y-108-bob;
+    ctx.fillStyle=PAPER;ctx.strokeStyle=INK;ctx.lineWidth=2.5;rr(x-bw/2,bb-bh,bw,bh,13);ctx.fill();ctx.stroke();
+    label(l1,x,bb-bh+15,14,INK);if(l2)label(l2,x,bb-bh+31,14,INK);}
+  else if(e.emote>=0&&now<e.emoteUntil){var t=EMOTES[e.emote]||"";ctx.font="15px "+FONT;var w=ctx.measureText(t).width+20,by=y-122-bob;
     ctx.fillStyle=PAPER;ctx.strokeStyle=INK;ctx.lineWidth=2.5;rr(x-w/2,by-14,w,28,14);ctx.fill();ctx.stroke();label(t,x,by+1,15,INK);}
   ctx.globalAlpha=1;
 }
