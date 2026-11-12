@@ -121,7 +121,7 @@ body{background:var(--grass);color:var(--ink);font-family:var(--body);font-size:
     <ul class="how">
       <li><b>북쪽</b> OX 퀴즈 무대: 정답 쪽에 서 있으면 코인을 받아요</li>
       <li><b>서쪽</b> 별똥별 들판: 30초 동안 별을 가장 많이 모아요</li>
-      <li><b>동쪽</b> 메인 게임장: 내 집을 짓고 들어가 공부하고, 쉬고, 노래를 들어요. 다른 집도 들어갈 수 있어요</li>
+      <li><b>동쪽</b> 메인 게임장: 내 집을 짓고 들어가 공부하고, 쉬고, 노래를 들어요. 집 안도 꾸밀 수 있고, 다른 집도 들어갈 수 있어요</li>
       <li><b>남쪽</b> 소원 연못: 조용히 소원 등불을 띄워요</li>
     </ul>
     <div>
@@ -236,6 +236,18 @@ var audioCtx=null,musicNode=null;
 var myId=Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4);
 var PIECES=[{k:"path",n:"길"},{k:"fence",n:"울타리"},{k:"flower",n:"꽃"},{k:"bush",n:"덤불"},{k:"tree",n:"나무"},{k:"bench",n:"벤치"},{k:"lamp",n:"가로등"},{k:"house",n:"집"},{k:"well",n:"우물"}];
 var PIECE_SET={};PIECES.forEach(function(p){PIECE_SET[p.k]=1;});
+var INSIDE=[{k:"rug",n:"러그"},{k:"plant",n:"화분"},{k:"frame",n:"그림"},{k:"cushion",n:"방석"},{k:"shelf",n:"선반"},{k:"stand",n:"스탠드"}];
+var WALLS=[{k:"cream",n:"크림"},{k:"sage",n:"세이지"},{k:"sky",n:"하늘"},{k:"night",n:"밤"}];
+var INSIDE_SET={};INSIDE.forEach(function(p){INSIDE_SET[p.k]=1;});
+var WALL_SET={cream:1,sage:1,sky:1,night:1};
+var ROOM_PAL={
+  cream:{floor:"#F3E6D0",top:"#E7C9A4",rug:"#E8A0B0"},
+  sage:{floor:"#E5F3E2",top:"#C9DEC8",rug:"#F2C9B0"},
+  sky:{floor:"#E7F3FB",top:"#C9DFF2",rug:"#F6D7A8"},
+  night:{floor:"#2E3458",top:"#232846",rug:"#6E4C6A"}
+};
+var myLook={w:"cream",a:[]},decor={},decorDirty=true;
+var onYard=null,onDecor=null,onChatMsg=null;
 var room=null,peersRaw=[],peerState=new Map();
 var toastUntil=0;
 
@@ -307,12 +319,31 @@ function saveYard(){
     yard.push({i:String(p.i||Math.random().toString(36).slice(2)),k:p.k,x:p.x|0,y:p.y|0,own:myId,nm:String(p.nm||"").slice(0,8),t:Date.now()});
   });
 })();
+(function(){
+  var s=load("decor",null);
+  if(!s||!Array.isArray(s.a))return;
+  if(WALL_SET[s.w])myLook.w=s.w;
+  s.a.forEach(function(p){
+    if(!p||!INSIDE_SET[p.k]||myLook.a.length>=24)return;
+    myLook.a.push({k:p.k,x:p.x|0,y:p.y|0});
+  });
+})();
+function saveDecor(){
+  save("decor",{w:myLook.w,a:myLook.a.map(function(p){return {k:p.k,x:p.x,y:p.y};})});
+  decorDirty=true;
+}
 function renderTools(){
   var host=$("buildBar");if(!host)return;host.textContent="";
-  function add(k,n){var b=document.createElement("button");b.type="button";b.className="btn plain";b.textContent=n;
-    b.setAttribute("aria-pressed",String(tool===k));
-    b.addEventListener("click",function(){tool=k;renderTools();});host.appendChild(b);}
-  PIECES.forEach(function(p){add(p.k,p.n);});
+  var inside=scene==="home";
+  function add(k,n,group){var b=document.createElement("button");b.type="button";b.className="btn plain";b.textContent=n;
+    b.setAttribute("aria-pressed",String(group==="wall"?myLook.w===k:tool===k));
+    b.addEventListener("click",function(){
+      if(group==="wall"){myLook.w=k;saveDecor();toast("벽지를 바꿨어요");}
+      else tool=k;
+      renderTools();
+    });host.appendChild(b);}
+  if(inside){WALLS.forEach(function(p){add(p.k,p.n,"wall");});INSIDE.forEach(function(p){add(p.k,p.n);});}
+  else PIECES.forEach(function(p){add(p.k,p.n);});
   add("erase","치우기");
 }
 function worldSize(){
@@ -403,12 +434,15 @@ function enterHouse(p){
   home={i:p.i,own:p.own,nm:p.nm||"",x:p.x,y:p.y};
   scene="home";homeAct=0;studyMs=0;studyNoted=false;
   me.x=220;me.y=RH/2;me.fx=1;me.fy=0;cam.x=me.x;cam.y=me.y;hopUntil=Date.now()+700;
-  toast(houseName(home)+"이에요. 책상, 침대, 라디오가 있어요");
+  toast(p.own===myId?"내 집이에요. 아래에서 벽지와 가구를 고르세요":houseName(home)+"이에요");
+  if(p.own===myId){if(!INSIDE_SET[tool]&&tool!=="erase")tool="plant";renderTools();}
   syncRoomMusic();
 }
 function leaveHouse(){
   var hx=home?home.x:640,hy=home?home.y+52:YH/2;
   scene="yard";home=null;homeAct=0;stopMusic();
+  if(!PIECE_SET[tool])tool="flower";
+  renderTools();
   me.x=clamp(hx,320,YW-40);me.y=clamp(hy,90,YH-40);me.fx=0;me.fy=1;cam.x=me.x;cam.y=me.y;hopUntil=Date.now()+700;
   toast("마당으로 나왔어요");
 }
@@ -422,7 +456,33 @@ function doHomeAction(){
   if(sp.id==="rest"){homeAct=2;me.x=sp.x;me.y=sp.y+28;me.fx=0;me.fy=-1;toast("편히 쉬어요");return;}
   if(sp.id==="song") setRadio(!radioOn[home.i]);
 }
+function decorBlocked(x,y){
+  if(x<200||y<170||x>RW-90||y>RH-80)return true;
+  var spots=homeSpots();
+  for(var i=0;i<spots.length;i++) if(Math.hypot(spots[i].x-x,spots[i].y-y)<120)return true;
+  return false;
+}
+function tryDecor(px,py){
+  if(!home||home.own!==myId||!me.joined||!$("shop").hidden||!$("wishBox").hidden||!tool)return;
+  var w=worldOf(px,py);
+  var gx=Math.round(w.x/GS)*GS,gy=Math.round(w.y/GS)*GS;
+  if(decorBlocked(gx,gy)){toast("그 자리는 비워 두어요");return;}
+  var list=myLook.a,idx=-1;
+  for(var i=0;i<list.length;i++) if(list[i].x===gx&&list[i].y===gy)idx=i;
+  if(tool==="erase"){
+    if(idx<0)return;
+    list.splice(idx,1);saveDecor();toast("치웠어요");return;
+  }
+  if(!INSIDE_SET[tool])return;
+  if(idx>=0)list[idx].k=tool;
+  else{
+    if(list.length>=24){toast("24개까지 놓을 수 있어요");return;}
+    list.push({k:tool,x:gx,y:gy});
+  }
+  saveDecor();
+}
 function tryPlace(px,py){
+  if(scene==="home"){tryDecor(px,py);return;}
   if(scene!=="yard"||!me.joined||!$("shop").hidden||!$("wishBox").hidden||!tool)return;
   var w=worldOf(px,py);
   var gx=Math.round(w.x/GS)*GS,gy=Math.round(w.y/GS)*GS;
@@ -563,6 +623,7 @@ var CFG=window.MOYEORA_CONFIG||{},roomBase="test",netState="solo",netSend=null,o
     c.on("broadcast",{event:"c"},function(m){var d=m&&m.payload;if(!d||typeof d.id!=="string"||d.id===myId)return;if(onChatMsg)onChatMsg(d.id,d.n,d.t);});
     c.on("broadcast",{event:"y"},function(m){var d=m&&m.payload;if(!d||typeof d.id!=="string"||d.id===myId)return;if(onYard)onYard(d.id,d.a);});
     c.on("broadcast",{event:"hm"},function(m){var d=m&&m.payload;if(!d||d.id===myId||typeof d.i!=="string")return;radioOn[d.i]=d.on?1:0;});
+    c.on("broadcast",{event:"hd"},function(m){var d=m&&m.payload;if(!d||d.id===myId||typeof d.i!=="string"||!Array.isArray(d.a))return;if(onDecor)onDecor(d);});
     c.on("presence",{event:"sync"},function(){});
     c.subscribe(function(st){
       if(moved)return;
@@ -595,14 +656,25 @@ var CFG=window.MOYEORA_CONFIG||{},roomBase="test",netState="solo",netSend=null,o
   },400);
 })();
 onYard=function(id,a){acceptYard(id,a,Date.now());};
-var yardSent=0;
+onDecor=function(d){
+  var a=[];
+  for(var i=0;i<d.a.length&&i<24;i++){var p=d.a[i];if(!p||!INSIDE_SET[p.k])continue;a.push({k:p.k,x:p.x|0,y:p.y|0});}
+  decor[d.i]={w:WALL_SET[d.w]?d.w:"cream",a:a};
+};
+var yardSent=0,decorSent=0;
 setInterval(function(){
   var now=Date.now();
   sweepYard(now);
   if(!netSend||!me.joined)return;
-  if(!yardDirty&&now-yardSent<5000)return;
-  yardDirty=false;yardSent=now;
-  netSend("y",{a:yard.filter(function(p){return p.own===myId;}).map(function(p){return {i:p.i,k:p.k,x:p.x,y:p.y,nm:p.nm||""};})});
+  if(yardDirty||now-yardSent>=5000){
+    yardDirty=false;yardSent=now;
+    netSend("y",{a:yard.filter(function(p){return p.own===myId;}).map(function(p){return {i:p.i,k:p.k,x:p.x,y:p.y,nm:p.nm||""};})});
+  }
+  if(decorDirty||now-decorSent>=5000){
+    decorDirty=false;decorSent=now;
+    var h=myHouse();
+    if(h)netSend("hd",{i:h.i,w:myLook.w,a:myLook.a});
+  }
 },1500);
 function syncPeers(now,dt){
   var seen={};
@@ -724,7 +796,7 @@ function update(dt,now){
       else if(sp&&sp.id==="study"){sub="책상에 앉아 공부해요";actLabel="공부하기";}
       else if(sp&&sp.id==="rest"){sub="침대에서 쉬어요";actLabel="쉬기";}
       else if(sp&&sp.id==="song"){sub=radioOn[home.i]?"노래가 집 안을 채워요":"라디오를 켤 수 있어요";actLabel=radioOn[home.i]?"노래 끄기":"노래 듣기";}
-      else sub=(radioOn[home.i]?"노래가 나와요 · ":"")+who;
+      else sub=(home.own===myId?"짧게 누르면 집 안을 꾸며요 · ":"")+(radioOn[home.i]?"노래가 나와요 · ":"")+who;
     }
   }else if(scene==="yard"){
     var nh=nearHouse();
@@ -751,7 +823,7 @@ function update(dt,now){
   if(actLabel){if(ab.textContent!==actLabel)ab.textContent=actLabel;ab.hidden=false;}
   else if(mz==="wish"){if(ab.textContent!=="소원 등불 띄우기")ab.textContent="소원 등불 띄우기";ab.hidden=false;}
   else ab.hidden=true;
-  var bar=$("buildBar");if(bar)bar.hidden=scene!=="yard";
+  var bar=$("buildBar");if(bar)bar.hidden=!(scene==="yard"||(scene==="home"&&home&&home.own===myId));
   if(toastUntil&&now>toastUntil){$("toast").hidden=true;toastUntil=0;}
   var total=(me.joined?1:0)+bots.length+peerState.size;
   var where=scene==="home"?"집 · ":scene==="yard"?"게임장 · ":"";
@@ -962,16 +1034,34 @@ function drawYard(g,now){
   if(me.joined){ctx.fillStyle=CORAL;ctx.beginPath();ctx.arc(x0+me.x*sc,y0+me.y*sc,4,0,6.283);ctx.fill();}
   drawJoy();
 }
+function drawInside(p,alpha){
+  ctx.save();ctx.globalAlpha=alpha;var x=p.x,y=p.y;
+  ctx.lineWidth=3;ctx.strokeStyle=INK;ctx.lineJoin="round";ctx.lineCap="round";
+  if(p.k==="rug"){ctx.fillStyle="#E8A0B0";ctx.beginPath();ctx.ellipse(x,y,46,26,0,0,6.283);ctx.fill();ctx.stroke();ctx.strokeStyle="rgba(43,42,76,.35)";ctx.beginPath();ctx.ellipse(x,y,28,14,0,0,6.283);ctx.stroke();}
+  else if(p.k==="plant"){ctx.fillStyle="#C4A27A";rr(x-12,y-2,24,16,4);ctx.fill();ctx.stroke();ctx.fillStyle="#5FBF7F";ctx.beginPath();ctx.arc(x-8,y-16,10,0,6.283);ctx.arc(x+8,y-14,9,0,6.283);ctx.arc(x,y-24,10,0,6.283);ctx.fill();ctx.stroke();}
+  else if(p.k==="frame"){ctx.fillStyle="#C4A27A";rr(x-22,y-26,44,36,4);ctx.fill();ctx.stroke();ctx.fillStyle=SKY;rr(x-16,y-20,32,24,2);ctx.fill();ctx.fillStyle="#7BC67E";ctx.beginPath();ctx.moveTo(x-16,y+4);ctx.lineTo(x-4,y-8);ctx.lineTo(x+16,y+4);ctx.fill();ctx.fillStyle=SUN;ctx.beginPath();ctx.arc(x+8,y-12,4,0,6.283);ctx.fill();}
+  else if(p.k==="cushion"){ctx.fillStyle=CORAL;ctx.beginPath();ctx.ellipse(x,y,22,14,0,0,6.283);ctx.fill();ctx.stroke();ctx.beginPath();ctx.moveTo(x,y-8);ctx.lineTo(x,y+8);ctx.stroke();}
+  else if(p.k==="shelf"){ctx.fillStyle="#9A6B4B";rr(x-28,y-4,56,10,2);ctx.fill();ctx.stroke();ctx.fillStyle="#6FB8FF";rr(x-22,y-22,10,16,1);ctx.fill();ctx.stroke();ctx.fillStyle=CORAL;rr(x-8,y-26,10,20,1);ctx.fill();ctx.stroke();ctx.fillStyle=SUN;rr(x+6,y-18,10,12,1);ctx.fill();ctx.stroke();}
+  else if(p.k==="stand"){ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(x,y+10);ctx.lineTo(x,y-28);ctx.stroke();ctx.fillStyle=SUN;ctx.lineWidth=3;ctx.beginPath();ctx.arc(x,y-34,10,0,6.283);ctx.fill();ctx.stroke();ctx.fillStyle="rgba(255,201,77,.3)";ctx.beginPath();ctx.arc(x,y-34,22,0,6.283);ctx.fill();}
+  ctx.restore();
+}
+function roomLook(){
+  if(!home)return {w:"cream",a:[]};
+  if(home.own===myId)return myLook;
+  return decor[home.i]||{w:"cream",a:[]};
+}
 function drawHome(now){
   ctx.setTransform(dpr,0,0,dpr,0,0);ctx.fillStyle="#E7D3B0";ctx.fillRect(0,0,vw,vh);
   var cx=clamp(cam.x,Math.min(RW/2,vw/2/zoom),Math.max(RW/2,RW-vw/2/zoom));
   var cy=clamp(cam.y,Math.min(RH/2,vh/2/zoom),Math.max(RH/2,RH-vh/2/zoom));
   ctx.setTransform(dpr*zoom,0,0,dpr*zoom,dpr*(vw/2-cx*zoom),dpr*(vh/2-cy*zoom));
-  ctx.fillStyle="#F3E6D0";ctx.fillRect(0,0,RW,RH);
-  ctx.fillStyle="#E7C9A4";ctx.fillRect(0,0,RW,78);
+  var look=roomLook(),pal=ROOM_PAL[look.w]||ROOM_PAL.cream;
+  ctx.fillStyle=pal.floor;ctx.fillRect(0,0,RW,RH);
+  ctx.fillStyle=pal.top;ctx.fillRect(0,0,RW,78);
   ctx.fillStyle=SKY;ctx.strokeStyle=INK;ctx.lineWidth=4;rr(760,96,220,120,12);ctx.fill();ctx.stroke();
   ctx.strokeStyle="rgba(255,255,255,.7)";ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(870,96);ctx.lineTo(870,216);ctx.moveTo(760,156);ctx.lineTo(980,156);ctx.stroke();
-  ctx.fillStyle="#E8A0B0";rr(430,430,280,150,70);ctx.fill();ctx.strokeStyle=INK;ctx.lineWidth=3;ctx.stroke();
+  for(var r=0;r<look.a.length;r++) if(look.a[r].k==="rug")drawInside(look.a[r],1);
+  ctx.fillStyle=pal.rug;rr(430,430,280,150,70);ctx.fill();ctx.strokeStyle=INK;ctx.lineWidth=3;ctx.stroke();
   ctx.fillStyle="#C4A27A";rr(36,RH/2-78,28,156,8);ctx.fill();ctx.strokeStyle=INK;ctx.lineWidth=4;ctx.stroke();
   label("마당",118,RH/2-96,18,INK,PAPER);
   var spots=homeSpots();
@@ -987,6 +1077,7 @@ function drawHome(now){
   ctx.fillStyle="#2B2A4C";ctx.beginPath();ctx.arc(spots[3].x,spots[3].y,14,0,6.283);ctx.fill();ctx.stroke();
   ctx.strokeStyle=INK;ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(spots[3].x+20,spots[3].y-20);ctx.lineTo(spots[3].x+34,spots[3].y-40);ctx.stroke();
   label("노래",spots[3].x,spots[3].y-52,16,INK,PAPER);
+  for(r=0;r<look.a.length;r++) if(look.a[r].k!=="rug")drawInside(look.a[r],1);
   if(home&&radioOn[home.i]){
     for(var n=0;n<3;n++){
       var t=(now/650+n*1.7)%5;
@@ -1003,6 +1094,13 @@ function drawHome(now){
     drawChar(e,now,e===me,false);
     if(doing===1)label("공부",e.x,e.y-78,14,INK,PAPER);
     else if(doing===2)label("zzz",e.x+16,e.y-86+Math.sin(now/280+e.x)*3,16,SKY,PAPER);
+  }
+  if(aim&&home&&home.own===myId&&me.joined&&$("shop").hidden&&$("wishBox").hidden&&tool){
+    var w=worldOf(aim.x,aim.y),sx=Math.round(w.x/GS)*GS,sy=Math.round(w.y/GS)*GS;
+    if(!decorBlocked(sx,sy)){
+      if(tool==="erase"){ctx.strokeStyle=CORAL;ctx.setLineDash([6,5]);ctx.strokeRect(sx-GS/2+6,sy-GS/2+6,GS-12,GS-12);ctx.setLineDash([]);}
+      else if(INSIDE_SET[tool])drawInside({k:tool,x:sx,y:sy},0.45);
+    }
   }
   ctx.setTransform(dpr,0,0,dpr,0,0);
   drawJoy();
