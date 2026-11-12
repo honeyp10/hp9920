@@ -162,7 +162,7 @@ ul.how{margin:0;padding-left:18px;line-height:1.6;font-size:14px}
 </div>
 
 <script src="vendor/supabase.js?v=3"></script>
-<script src="config.js?v=4"></script>
+<script src="config.js?v=5"></script>
 <script>
 (function(){
 "use strict";
@@ -352,7 +352,7 @@ $("introForm").addEventListener("submit",function(e){e.preventDefault();
 setCoins(coins);
 
 /* ---------- multiplayer: Supabase Realtime (anyone with the link) ---------- */
-var CFG=window.MOYEORA_CONFIG||{},roomBase="plaza",netState="solo",netSend=null,onChatMsg=null;
+var CFG=window.MOYEORA_CONFIG||{},roomBase="plaza",netState="solo",netSend=null,onChatMsg;
 (function(){
   var params=new URLSearchParams(location.search);
   roomBase=(params.get("room")||"plaza").toLowerCase().replace(/[^a-z0-9-]/g,"").slice(0,20)||"plaza";
