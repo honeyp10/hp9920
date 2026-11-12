@@ -146,8 +146,8 @@ ul.how{margin:0;padding-left:18px;line-height:1.6;font-size:14px}
   </form>
 </div>
 
-<script src="vendor/supabase.js"></script>
-<script src="config.js"></script>
+<script src="vendor/supabase.js?v=3"></script>
+<script src="config.js?v=3"></script>
 <script>
 (function(){
 "use strict";
@@ -318,7 +318,7 @@ $("introForm").addEventListener("submit",function(e){e.preventDefault();
 setCoins(coins);
 
 /* ---------- multiplayer: Supabase Realtime (anyone with the link) ---------- */
-var CFG=window.MOYEORA_CONFIG||{},roomBase="plaza";
+var CFG=window.MOYEORA_CONFIG||{},roomBase="plaza",netState="solo";
 (function(){
   var params=new URLSearchParams(location.search);
   roomBase=(params.get("room")||"plaza").toLowerCase().replace(/[^a-z0-9-]/g,"").slice(0,20)||"plaza";
@@ -328,17 +328,23 @@ var CFG=window.MOYEORA_CONFIG||{},roomBase="plaza";
   var myId=Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4);
   var MAXR=CFG.roomSize||80,remote={},ch=null,n=1;
   function join(){
-    remote={};ch=null;
+    remote={};ch=null;netState="connecting";
     var c=client.channel("moyeora:"+roomBase+":"+n,{config:{broadcast:{self:false},presence:{key:myId}}});
-    var checked=false;
+    var moved=false;
     c.on("broadcast",{event:"p"},function(m){var d=m&&m.payload;if(!d||typeof d.id!=="string"||d.id===myId)return;remote[d.id]={t:Date.now(),p:d};});
-    c.on("presence",{event:"sync"},function(){
-      if(checked)return;checked=true;
-      var cnt=Object.keys(c.presenceState()).length;
-      if(cnt>=MAXR&&n<30){client.removeChannel(c);n++;join();return;}
-      ch=c;c.track({t:Date.now()});
+    c.on("presence",{event:"sync"},function(){});
+    c.subscribe(function(st){
+      if(moved)return;
+      if(st==="SUBSCRIBED"){
+        ch=c;netState="online";
+        setTimeout(function(){
+          if(moved||ch!==c)return;
+          var cnt=0;try{cnt=Object.keys(c.presenceState()).length;}catch(e){}
+          if(cnt>=MAXR&&n<30){moved=true;ch=null;client.removeChannel(c);n++;join();return;}
+          try{c.track({t:Date.now()});}catch(e){}
+        },900);
+      }else if(st==="CHANNEL_ERROR"||st==="TIMED_OUT"){netState="error";if(ch===c)ch=null;}
     });
-    c.subscribe();
   }
   join();
   var last="",lastAt=0;
@@ -466,7 +472,7 @@ function update(dt,now){
   $("act").hidden=mz!=="wish";
   if(toastUntil&&now>toastUntil){$("toast").hidden=true;toastUntil=0;}
   var total=(me.joined?1:0)+bots.length+peerState.size;
-  var ct="지금 "+total+"명 (봇 "+bots.length+")";
+  var ct="지금 "+total+"명 (봇 "+bots.length+") · "+({solo:"혼자 모드",connecting:"연결 중",online:"온라인",error:"연결 안 됨"}[netState]||"");
   if($("count").textContent!==ct)$("count").textContent=ct;
   return{ox:ox,sr:sr,tg:tg,wisps:wisps,mz:mz};
 }
