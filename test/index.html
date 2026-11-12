@@ -117,11 +117,11 @@ body{background:var(--grass);color:var(--ink);font-family:var(--body);font-size:
   <form class="card" id="introForm">
     <h1>모여라 광장</h1>
     <p>광장에서 만나 가볍게 한 판 하는 곳이에요. 길을 따라가면 게임이 열려 있어요.</p>
-    <p class="testnote">테스트 방이에요. 메인 게임장 버전이 이 주소에 열려 있어요. 본 광장(plaza)과 따로 열려서, 여기서 움직이고 채팅해도 실제 광장에는 안 섞여요. 같은 Supabase의 test 방만 써요.</p>
+    <p class="testnote">테스트 방이에요. 본 광장(plaza)과 따로 열려서, 여기서 움직이고 채팅해도 실제 광장에는 안 섞여요. 같은 Supabase의 test 방만 써요.</p>
     <ul class="how">
       <li><b>북쪽</b> OX 퀴즈 무대: 정답 쪽에 서 있으면 코인을 받아요</li>
       <li><b>서쪽</b> 별똥별 들판: 30초 동안 별을 가장 많이 모아요</li>
-      <li><b>동쪽</b> 메인 게임장: 길을 따라 들어가면 집과 나무를 짓고 꾸밀 수 있어요</li>
+      <li><b>동쪽</b> 메인 게임장: 내 집을 짓고 들어가 공부하고, 쉬고, 노래를 들어요. 다른 집도 들어갈 수 있어요</li>
       <li><b>남쪽</b> 소원 연못: 조용히 소원 등불을 띄워요</li>
     </ul>
     <div>
@@ -231,6 +231,8 @@ var oxIn=-1,oxJudged=-1,oxMsg=null;
 var myStars=0,myStarR=-1,starJudged=-1,starMsg=null,starGot={};
 var tagJoin=-1,tagOut=-1,tagJudged=-1,tagMsg=null;
 var scene="plaza",YW=2200,YH=1600,GS=80,tool="flower",yard=[],yardSeen={},yardDirty=true,hopUntil=0,aim=null;
+var RW=1200,RH=800,home=null,homeAct=0,studyMs=0,studyNoted=false,radioOn={};
+var audioCtx=null,musicNode=null;
 var myId=Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4);
 var PIECES=[{k:"path",n:"길"},{k:"fence",n:"울타리"},{k:"flower",n:"꽃"},{k:"bush",n:"덤불"},{k:"tree",n:"나무"},{k:"bench",n:"벤치"},{k:"lamp",n:"가로등"},{k:"house",n:"집"},{k:"well",n:"우물"}];
 var PIECE_SET={};PIECES.forEach(function(p){PIECE_SET[p.k]=1;});
@@ -295,14 +297,14 @@ function setCoins(n){coins=Math.max(0,n);save("coins",coins);$("coins").textCont
 function toast(t){var el=$("toast");el.textContent=t;el.hidden=false;toastUntil=Date.now()+2200;}
 function addLantern(x,y,text){lanterns.push({x:x,y:y,t0:Date.now(),text:String(text).slice(0,20)});if(lanterns.length>40)lanterns.shift();}
 function saveYard(){
-  save("yard",yard.filter(function(p){return p.own===myId;}).map(function(p){return {i:p.i,k:p.k,x:p.x,y:p.y};}));
+  save("yard",yard.filter(function(p){return p.own===myId;}).map(function(p){return {i:p.i,k:p.k,x:p.x,y:p.y,nm:p.nm||""};}));
 }
 (function(){
   var saved=load("yard",[]);
   if(!Array.isArray(saved))return;
   saved.forEach(function(p){
     if(!p||!PIECE_SET[p.k])return;
-    yard.push({i:String(p.i||Math.random().toString(36).slice(2)),k:p.k,x:p.x|0,y:p.y|0,own:myId,t:Date.now()});
+    yard.push({i:String(p.i||Math.random().toString(36).slice(2)),k:p.k,x:p.x|0,y:p.y|0,own:myId,nm:String(p.nm||"").slice(0,8),t:Date.now()});
   });
 })();
 function renderTools(){
@@ -313,13 +315,112 @@ function renderTools(){
   PIECES.forEach(function(p){add(p.k,p.n);});
   add("erase","치우기");
 }
+function worldSize(){
+  if(scene==="home")return {w:RW,h:RH};
+  if(scene==="yard")return {w:YW,h:YH};
+  return {w:W,h:H};
+}
 function worldOf(px,py){
   var r=cv.getBoundingClientRect();
   var sx=px-r.left,sy=py-r.top;
-  var ww=scene==="yard"?YW:W,hh=scene==="yard"?YH:H;
-  var camx=clamp(cam.x,Math.min(ww/2,vw/2/zoom),Math.max(ww/2,ww-vw/2/zoom));
-  var camy=clamp(cam.y,Math.min(hh/2,vh/2/zoom),Math.max(hh/2,hh-vh/2/zoom));
+  var box=worldSize();
+  var camx=clamp(cam.x,Math.min(box.w/2,vw/2/zoom),Math.max(box.w/2,box.w-vw/2/zoom));
+  var camy=clamp(cam.y,Math.min(box.h/2,vh/2/zoom),Math.max(box.h/2,box.h-vh/2/zoom));
   return {x:(sx-vw/2)/zoom+camx,y:(sy-vh/2)/zoom+camy};
+}
+function myHouse(){
+  for(var i=0;i<yard.length;i++) if(yard[i].own===myId&&yard[i].k==="house") return yard[i];
+  return null;
+}
+function nearHouse(){
+  var best=null,bd=120;
+  for(var i=0;i<yard.length;i++){
+    var p=yard[i]; if(p.k!=="house") continue;
+    var d=Math.hypot(p.x-me.x,p.y-me.y);
+    if(d<bd){bd=d;best=p;}
+  }
+  return best;
+}
+function houseName(p){
+  if(!p)return "집";
+  if(p.own===myId)return "내 집";
+  var n=p.nm||"";
+  if(!n) peerState.forEach(function(q,id){if(id===p.own&&q.name)n=q.name;});
+  return (n||"친구")+"의 집";
+}
+function homeSpots(){return [{id:"door",x:78,y:RH/2},{id:"study",x:860,y:250},{id:"rest",x:320,y:560},{id:"song",x:900,y:540}];}
+function nearestSpot(){
+  var spots=homeSpots(),best=null,bd=100;
+  for(var i=0;i<spots.length;i++){
+    var d=Math.hypot(spots[i].x-me.x,spots[i].y-me.y);
+    if(d<bd){bd=d;best=spots[i];}
+  }
+  return best;
+}
+function stopMusic(){
+  if(!musicNode)return;
+  try{musicNode.src.stop();}catch(e){}
+  try{musicNode.gain.disconnect();}catch(e){}
+  musicNode=null;
+}
+function startMusic(){
+  var AC=window.AudioContext||window.webkitAudioContext;
+  if(!AC)return;
+  if(!audioCtx)audioCtx=new AC();
+  if(audioCtx.state==="suspended")audioCtx.resume();
+  if(musicNode)return;
+  var sr=audioCtx.sampleRate,beats=8,sec=8*(60/76),len=Math.floor(sr*sec);
+  var buf=audioCtx.createBuffer(1,len,sr),data=buf.getChannelData(0);
+  var freq=[392,440,494,523.25,494,440,392,330];
+  for(var i=0;i<beats;i++){
+    var f=freq[i],a0=Math.floor(i*len/beats),n=Math.floor(len/beats*0.62);
+    for(var s=0;s<n;s++){
+      var env=Math.sin(Math.PI*s/n);
+      data[a0+s]+=Math.sin(2*Math.PI*f*s/sr)*0.2*env;
+    }
+  }
+  var src=audioCtx.createBufferSource();
+  src.buffer=buf;src.loop=true;
+  var gain=audioCtx.createGain();gain.gain.value=0.22;
+  src.connect(gain);gain.connect(audioCtx.destination);src.start();
+  musicNode={src:src,gain:gain};
+}
+function radioNeedsGesture(){
+  return scene==="home"&&home&&radioOn[home.i]&&(!audioCtx||audioCtx.state!=="running");
+}
+function syncRoomMusic(){
+  if(scene==="home"&&home&&radioOn[home.i])startMusic();
+  else stopMusic();
+}
+function setRadio(on){
+  if(!home)return;
+  radioOn[home.i]=on?1:0;
+  if(netSend)netSend("hm",{i:home.i,on:on?1:0});
+  if(on)startMusic(); else stopMusic();
+  toast(on?"조용한 노래를 틀었어요":"노래를 껐어요");
+}
+function enterHouse(p){
+  home={i:p.i,own:p.own,nm:p.nm||"",x:p.x,y:p.y};
+  scene="home";homeAct=0;studyMs=0;studyNoted=false;
+  me.x=220;me.y=RH/2;me.fx=1;me.fy=0;cam.x=me.x;cam.y=me.y;hopUntil=Date.now()+700;
+  toast(houseName(home)+"이에요. 책상, 침대, 라디오가 있어요");
+  syncRoomMusic();
+}
+function leaveHouse(){
+  var hx=home?home.x:640,hy=home?home.y+52:YH/2;
+  scene="yard";home=null;homeAct=0;stopMusic();
+  me.x=clamp(hx,320,YW-40);me.y=clamp(hy,90,YH-40);me.fx=0;me.fy=1;cam.x=me.x;cam.y=me.y;hopUntil=Date.now()+700;
+  toast("마당으로 나왔어요");
+}
+function doHomeAction(){
+  if(homeAct===1||homeAct===2){homeAct=0;toast(homeAct===0?"그만했어요":"");return;}
+  var sp=nearestSpot();
+  if(sp&&sp.id==="door"){leaveHouse();return;}
+  if(radioNeedsGesture()&&(!sp||sp.id==="song")){startMusic();toast("같이 들어요");return;}
+  if(!sp)return;
+  if(sp.id==="study"){homeAct=1;studyMs=0;studyNoted=false;me.x=sp.x-70;me.y=sp.y+46;me.fx=1;me.fy=0;toast("조용히 공부해요");return;}
+  if(sp.id==="rest"){homeAct=2;me.x=sp.x;me.y=sp.y+28;me.fx=0;me.fy=-1;toast("편히 쉬어요");return;}
+  if(sp.id==="song") setRadio(!radioOn[home.i]);
 }
 function tryPlace(px,py){
   if(scene!=="yard"||!me.joined||!$("shop").hidden||!$("wishBox").hidden||!tool)return;
@@ -331,22 +432,28 @@ function tryPlace(px,py){
   if(tool==="erase"){
     if(!occ)return;
     if(occ.own!==myId){toast("다른 사람이 놓은 거예요");return;}
-    yard.splice(yard.indexOf(occ),1);saveYard();yardDirty=true;toast("치웠어요");return;
+    if(occ.k==="house"&&home&&home.i===occ.i)leaveHouse();
+    yard.splice(yard.indexOf(occ),1);saveYard();yardDirty=true;toast(occ.k==="house"?"집을 치웠어요":"치웠어요");return;
+  }
+  if(tool==="house"){
+    var already=myHouse();
+    if(already&&(!occ||already.i!==occ.i)){toast("집은 한 채만 지을 수 있어요");return;}
   }
   if(occ&&occ.own!==myId){toast("다른 사람 자리예요");return;}
-  if(occ){occ.k=tool;occ.t=Date.now();}
+  if(occ){occ.k=tool;occ.t=Date.now();if(tool==="house")occ.nm=me.name;}
   else{
     var n=0;for(var j=0;j<yard.length;j++)if(yard[j].own===myId)n++;
     if(n>=80){toast("80개까지 놓을 수 있어요");return;}
-    yard.push({i:myId.slice(0,4)+Math.random().toString(36).slice(2,7),k:tool,x:gx,y:gy,own:myId,t:Date.now()});
+    yard.push({i:myId.slice(0,4)+Math.random().toString(36).slice(2,7),k:tool,x:gx,y:gy,own:myId,nm:tool==="house"?me.name:"",t:Date.now()});
   }
   saveYard();yardDirty=true;
+  if(tool==="house")toast("집 앞에 서서 들어가기를 누르세요");
 }
 function acceptYard(id,arr,now){
   if(!id||id===myId||!Array.isArray(arr))return;
   yard=yard.filter(function(p){return p.own!==id;});
   for(var i=0;i<arr.length&&i<80;i++){var p=arr[i];if(!p||!PIECE_SET[p.k])continue;
-    yard.push({i:String(p.i||i),k:p.k,x:p.x|0,y:p.y|0,own:id,t:now});}
+    yard.push({i:String(p.i||i),k:p.k,x:p.x|0,y:p.y|0,own:id,nm:String(p.nm||"").slice(0,8),t:now});}
   yardSeen[id]=now;
 }
 function sweepYard(now){
@@ -354,7 +461,10 @@ function sweepYard(now){
   for(var id in yardSeen)if(now-yardSeen[id]>20000)drop.push(id);
   if(!drop.length)return;
   var bad={};drop.forEach(function(id){bad[id]=1;delete yardSeen[id];});
-  yard=yard.filter(function(p){return p.own===myId||!bad[p.own];});
+  yard=yard.filter(function(p){
+    if(p.own===myId||!bad[p.own])return true;
+    return p.k==="house"&&now-(p.t||0)<10*60*1000;
+  });
 }
 renderTools();
 function swatches(host){
@@ -399,7 +509,11 @@ $("invite").addEventListener("click",function(){
   if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(url).then(function(){toast("초대 링크를 복사했어요");},function(){toast(url);});}
   else toast(url);});
 $("closeShop").addEventListener("click",function(){$("shop").hidden=true;});
-$("act").addEventListener("click",function(){$("wishBox").hidden=false;$("wishText").value="";$("wishText").focus();});
+$("act").addEventListener("click",function(){
+  if(scene==="home"){doHomeAction();return;}
+  if(scene==="yard"){var h=nearHouse();if(h){enterHouse(h);return;}}
+  $("wishBox").hidden=false;$("wishText").value="";$("wishText").focus();
+});
 $("wishCancel").addEventListener("click",function(){$("wishBox").hidden=true;});
 $("wishForm").addEventListener("submit",function(e){e.preventDefault();var t=$("wishText").value.trim().slice(0,20);
   if(t){addLantern(me.x,me.y-40,t);myWish=t;myWishTs=Date.now();toast("등불을 띄웠어요");}
@@ -427,7 +541,9 @@ $("nick").value=load("name","")||("몽글이"+Math.floor(10+Math.random()*90));
 swatches($("introColors"));
 $("introForm").addEventListener("submit",function(e){e.preventDefault();
   me.name=($("nick").value.trim()||"몽글이").slice(0,8);save("name",me.name);me.joined=true;$("intro").hidden=true;
-  toast("동쪽 길을 따라가면 메인 게임장이에요");});
+  yard.forEach(function(p){if(p.own===myId&&p.k==="house"){p.nm=me.name;}});
+  yardDirty=true;
+  toast("동쪽 길로 가면 내 집을 지을 수 있어요");});
 setCoins(coins);
 
 /* ---------- multiplayer: Supabase Realtime (anyone with the link) ---------- */
@@ -446,6 +562,7 @@ var CFG=window.MOYEORA_CONFIG||{},roomBase="test",netState="solo",netSend=null,o
     c.on("broadcast",{event:"p"},function(m){var d=m&&m.payload;if(!d||typeof d.id!=="string"||d.id===myId)return;remote[d.id]={t:Date.now(),p:d};});
     c.on("broadcast",{event:"c"},function(m){var d=m&&m.payload;if(!d||typeof d.id!=="string"||d.id===myId)return;if(onChatMsg)onChatMsg(d.id,d.n,d.t);});
     c.on("broadcast",{event:"y"},function(m){var d=m&&m.payload;if(!d||typeof d.id!=="string"||d.id===myId)return;if(onYard)onYard(d.id,d.a);});
+    c.on("broadcast",{event:"hm"},function(m){var d=m&&m.payload;if(!d||d.id===myId||typeof d.i!=="string")return;radioOn[d.i]=d.on?1:0;});
     c.on("presence",{event:"sync"},function(){});
     c.subscribe(function(st){
       if(moved)return;
@@ -465,7 +582,7 @@ var CFG=window.MOYEORA_CONFIG||{},roomBase="test",netState="solo",netSend=null,o
   var last="",lastAt=0;
   setInterval(function(){
     if(!ch||!me.joined)return;
-    var p={id:myId,n:me.name,c:me.c,h:me.h,x:Math.round(me.x),y:Math.round(me.y),sc:scene==="yard"?1:0,s:myStars,sr:myStarR,o:tagOut,e:me.emote,et:me.emoteTs,w:myWish,wt:myWishTs};
+    var p={id:myId,n:me.name,c:me.c,h:me.h,x:Math.round(me.x),y:Math.round(me.y),sc:scene==="home"?2:scene==="yard"?1:0,hi:scene==="home"&&home?home.i:"",ac:homeAct|0,s:myStars,sr:myStarR,o:tagOut,e:me.emote,et:me.emoteTs,w:myWish,wt:myWishTs};
     var s=JSON.stringify(p),now=Date.now();
     if(s===last&&now-lastAt<2000)return;last=s;lastAt=now;
     try{ch.send({type:"broadcast",event:"p",payload:p});}catch(e){}
@@ -478,12 +595,14 @@ var CFG=window.MOYEORA_CONFIG||{},roomBase="test",netState="solo",netSend=null,o
   },400);
 })();
 onYard=function(id,a){acceptYard(id,a,Date.now());};
+var yardSent=0;
 setInterval(function(){
-  sweepYard(Date.now());
+  var now=Date.now();
+  sweepYard(now);
   if(!netSend||!me.joined)return;
-  if(!yardDirty)return;
-  yardDirty=false;
-  netSend("y",{a:yard.filter(function(p){return p.own===myId;}).map(function(p){return {i:p.i,k:p.k,x:p.x,y:p.y};})});
+  if(!yardDirty&&now-yardSent<5000)return;
+  yardDirty=false;yardSent=now;
+  netSend("y",{a:yard.filter(function(p){return p.own===myId;}).map(function(p){return {i:p.i,k:p.k,x:p.x,y:p.y,nm:p.nm||""};})});
 },1500);
 function syncPeers(now,dt){
   var seen={};
@@ -496,6 +615,7 @@ function syncPeers(now,dt){
     st.name=String(pr.n==null?"친구":pr.n).slice(0,8);
     st.c=clamp(pr.c|0,0,COLORS.length-1);st.h=clamp(pr.h|0,0,HATS.length-1);
     st.star=pr.s|0;st.sr=pr.sr|0;st.out=pr.o|0;st.sc=pr.sc|0;
+    st.hi=typeof pr.hi==="string"?pr.hi.slice(0,16):"";st.ac=pr.ac|0;
     if(pr.et!==st.et){st.et=pr.et;var k=pr.e|0;if(k>=0&&k<EMOTES.length){st.emote=k;st.emoteUntil=now+2500;}}
     if(pr.wt!==st.wt){st.wt=pr.wt;if(typeof pr.w==="string"&&pr.w)addLantern(st.tx,st.ty-40,pr.w);}
     var dx=st.tx-st.x,dy=st.ty-st.y,d=Math.hypot(dx,dy);
@@ -512,10 +632,14 @@ function update(dt,now){
     if(keys.arrowleft||keys.a)dx-=1;if(keys.arrowright||keys.d)dx+=1;if(keys.arrowup||keys.w)dy-=1;if(keys.arrowdown||keys.s)dy+=1;
     if(joy){var jx=joy.x-joy.ox,jy=joy.y-joy.oy,jd=Math.hypot(jx,jy);if(jd>10){dx=jx/jd*Math.min(1,jd/50);dy=jy/jd*Math.min(1,jd/50);}}
     var m=Math.hypot(dx,dy);
-    if(m>0.05){if(m>1){dx/=m;dy/=m;m=1;}
-      var ww=scene==="yard"?YW:W,hh=scene==="yard"?YH:H;
-      me.x=clamp(me.x+dx*230*dt,20,ww-20);me.y=clamp(me.y+dy*230*dt,30,hh-20);me.fx=dx/m;me.fy=dy/m;me.walk+=dt*10;}
+    var sitting=scene==="home"&&(homeAct===1||homeAct===2);
+    if(m>0.05&&!sitting){if(m>1){dx/=m;dy/=m;m=1;}
+      var box=worldSize();
+      var sp=scene==="home"?170:230;
+      me.x=clamp(me.x+dx*sp*dt,20,box.w-20);me.y=clamp(me.y+dy*sp*dt,30,box.h-20);me.fx=dx/m;me.fy=dy/m;me.walk+=dt*10;}
   }
+  if(homeAct===1){studyMs+=dt*1000;if(!studyNoted&&studyMs>60000){studyNoted=true;toast("한 토막 공부했어요");}}
+  syncRoomMusic();
   if(me.joined&&now>hopUntil){
     if(scene==="plaza"&&me.x>1960&&me.y>CY-260&&me.y<CY+260){
       scene="yard";me.x=220;me.y=YH/2;me.fx=1;me.fy=0;cam.x=me.x;cam.y=me.y;hopUntil=now+800;
@@ -582,14 +706,31 @@ function update(dt,now){
   syncPeers(now,dt);
 
   /* camera */
-  var ww=scene==="yard"?YW:W,hh=scene==="yard"?YH:H;
-  var tx=me.joined?me.x:(scene==="yard"?YW/2:CX),ty=me.joined?me.y:(scene==="yard"?YH/2:CY-60);
+  var tx=me.joined?me.x:(scene==="home"?RW/2:scene==="yard"?YW/2:CX),ty=me.joined?me.y:(scene==="home"?RH/2:scene==="yard"?YH/2:CY-60);
   cam.x+=(tx-cam.x)*Math.min(1,dt*6);cam.y+=(ty-cam.y)*Math.min(1,dt*6);
 
   /* hud */
-  var title="",sub="";
-  if(scene==="yard"){title="메인 게임장";sub=(tool==="erase"?"치울 칸을 짧게 누르세요":"짧게 누르면 놓고, 끌면 이동해요")+" · 왼쪽 길로 광장";}
-  else if(mz==="ox"){
+  var title="",sub="",actLabel="";
+  if(scene==="home"&&home){
+    var inside=1;peerState.forEach(function(p){if((p.sc|0)===2&&p.hi===home.i)inside++;});
+    var who=inside+"명이 같이 있어요";
+    if(homeAct===1){title="공부 중";sub=houseName(home)+" · "+Math.floor(studyMs/1000)+"초 · "+who;actLabel="공부 그만하기";}
+    else if(homeAct===2){title="쉬는 중";sub=houseName(home)+" · "+who;actLabel="일어나기";}
+    else{
+      title=houseName(home);
+      var sp=nearestSpot();
+      if(sp&&sp.id==="door"){sub="마당으로 나가요";actLabel="마당으로";}
+      else if(radioNeedsGesture()&&(!sp||sp.id==="song")){sub="라디오에서 노래가 나와요";actLabel="같이 듣기";}
+      else if(sp&&sp.id==="study"){sub="책상에 앉아 공부해요";actLabel="공부하기";}
+      else if(sp&&sp.id==="rest"){sub="침대에서 쉬어요";actLabel="쉬기";}
+      else if(sp&&sp.id==="song"){sub=radioOn[home.i]?"노래가 집 안을 채워요":"라디오를 켤 수 있어요";actLabel=radioOn[home.i]?"노래 끄기":"노래 듣기";}
+      else sub=(radioOn[home.i]?"노래가 나와요 · ":"")+who;
+    }
+  }else if(scene==="yard"){
+    var nh=nearHouse();
+    if(nh){title=houseName(nh);sub="들어가서 공부하고, 쉬고, 노래를 들어요";actLabel="들어가기";}
+    else{title="메인 게임장";sub=(tool==="erase"?"치울 칸을 짧게 누르세요":"짧게 누르면 놓고, 끌면 이동해요")+" · 집은 한 채 · 왼쪽 길로 광장";}
+  }else if(mz==="ox"){
     if(!ox.reveal){title="Q. "+ox.q[0];sub="왼쪽이 O, 오른쪽이 X · "+Math.ceil((OX_Q-ox.ph)/1000)+"초 남음";}
     else{title="정답은 "+(ox.q[1]?"O":"X")+"! "+ox.q[2];sub=(oxMsg&&oxMsg.r===ox.r?oxMsg.t+" · ":"")+"다음 문제까지 "+Math.ceil((OX_T-ox.ph)/1000)+"초";}
   }else if(mz==="star"){
@@ -606,11 +747,15 @@ function update(dt,now){
   else if(mz===null&&scene==="plaza"&&me.joined&&me.x>1700&&Math.abs(me.y-CY)<160){title="메인 게임장으로 가는 길";sub="오른쪽으로 계속 걸어요";}
   var bn=$("banner");
   if(title){if($("bTitle").textContent!==title)$("bTitle").textContent=title;if($("bSub").textContent!==sub)$("bSub").textContent=sub;bn.hidden=false;}else bn.hidden=true;
-  $("act").hidden=mz!=="wish";
+  var ab=$("act");
+  if(actLabel){if(ab.textContent!==actLabel)ab.textContent=actLabel;ab.hidden=false;}
+  else if(mz==="wish"){if(ab.textContent!=="소원 등불 띄우기")ab.textContent="소원 등불 띄우기";ab.hidden=false;}
+  else ab.hidden=true;
   var bar=$("buildBar");if(bar)bar.hidden=scene!=="yard";
   if(toastUntil&&now>toastUntil){$("toast").hidden=true;toastUntil=0;}
   var total=(me.joined?1:0)+bots.length+peerState.size;
-  var ct=(scene==="yard"?"게임장 · ":"")+roomBase+" · "+total+"명 (봇 "+bots.length+") · "+({solo:"혼자 모드",connecting:"연결 중",online:"온라인",error:"연결 안 됨"}[netState]||"");
+  var where=scene==="home"?"집 · ":scene==="yard"?"게임장 · ":"";
+  var ct=where+roomBase+" · "+total+"명 (봇 "+bots.length+") · "+({solo:"혼자 모드",connecting:"연결 중",online:"온라인",error:"연결 안 됨"}[netState]||"");
   if($("count").textContent!==ct)$("count").textContent=ct;
   return{ox:ox,sr:sr,tg:tg,wisps:wisps,mz:mz};
 }
@@ -797,6 +942,11 @@ function drawYard(g,now){
   if(me.joined)list.push(me);
   list.sort(function(a,b){return a.y-b.y;});
   for(i=0;i<list.length;i++){var e=list[i];if(e.prop)drawProp(e.prop,1);else drawChar(e,now,e===me,false);}
+  yard.forEach(function(p){
+    if(p.k!=="house")return;
+    var n=0;peerState.forEach(function(q){if((q.sc|0)===2&&q.hi===p.i)n++;});
+    label(n?houseName(p)+" · "+n+"명":houseName(p),p.x,p.y-56,14,INK,PAPER);
+  });
   if(aim&&tool&&me.joined&&$("shop").hidden&&$("wishBox").hidden){
     var w=worldOf(aim.x,aim.y),sx=Math.round(w.x/GS)*GS,sy=Math.round(w.y/GS)*GS;
     if(sx>=300&&sy>=80&&sx<=YW-80&&sy<=YH-80){
@@ -812,7 +962,53 @@ function drawYard(g,now){
   if(me.joined){ctx.fillStyle=CORAL;ctx.beginPath();ctx.arc(x0+me.x*sc,y0+me.y*sc,4,0,6.283);ctx.fill();}
   drawJoy();
 }
+function drawHome(now){
+  ctx.setTransform(dpr,0,0,dpr,0,0);ctx.fillStyle="#E7D3B0";ctx.fillRect(0,0,vw,vh);
+  var cx=clamp(cam.x,Math.min(RW/2,vw/2/zoom),Math.max(RW/2,RW-vw/2/zoom));
+  var cy=clamp(cam.y,Math.min(RH/2,vh/2/zoom),Math.max(RH/2,RH-vh/2/zoom));
+  ctx.setTransform(dpr*zoom,0,0,dpr*zoom,dpr*(vw/2-cx*zoom),dpr*(vh/2-cy*zoom));
+  ctx.fillStyle="#F3E6D0";ctx.fillRect(0,0,RW,RH);
+  ctx.fillStyle="#E7C9A4";ctx.fillRect(0,0,RW,78);
+  ctx.fillStyle=SKY;ctx.strokeStyle=INK;ctx.lineWidth=4;rr(760,96,220,120,12);ctx.fill();ctx.stroke();
+  ctx.strokeStyle="rgba(255,255,255,.7)";ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(870,96);ctx.lineTo(870,216);ctx.moveTo(760,156);ctx.lineTo(980,156);ctx.stroke();
+  ctx.fillStyle="#E8A0B0";rr(430,430,280,150,70);ctx.fill();ctx.strokeStyle=INK;ctx.lineWidth=3;ctx.stroke();
+  ctx.fillStyle="#C4A27A";rr(36,RH/2-78,28,156,8);ctx.fill();ctx.strokeStyle=INK;ctx.lineWidth=4;ctx.stroke();
+  label("마당",118,RH/2-96,18,INK,PAPER);
+  var spots=homeSpots();
+  ctx.fillStyle="#9A6B4B";rr(spots[1].x-90,spots[1].y-28,150,56,8);ctx.fill();ctx.stroke();
+  ctx.fillStyle=PAPER;rr(spots[1].x-20,spots[1].y-18,46,30,4);ctx.fill();ctx.stroke();
+  ctx.fillStyle=SUN;ctx.beginPath();ctx.arc(spots[1].x+48,spots[1].y-8,8,0,6.283);ctx.fill();ctx.stroke();
+  label("공부",spots[1].x-8,spots[1].y-48,16,INK,PAPER);
+  ctx.fillStyle=PAPER;rr(spots[2].x-70,spots[2].y-24,140,70,16);ctx.fill();ctx.stroke();
+  ctx.fillStyle="#9FD0F5";rr(spots[2].x-58,spots[2].y-14,78,40,10);ctx.fill();ctx.stroke();
+  ctx.fillStyle=CORAL;rr(spots[2].x-46,spots[2].y-36,36,24,8);ctx.fill();ctx.stroke();
+  label("쉬기",spots[2].x,spots[2].y-52,16,INK,PAPER);
+  ctx.fillStyle="#3E3A55";rr(spots[3].x-36,spots[3].y-28,72,56,8);ctx.fill();ctx.strokeStyle=INK;ctx.stroke();
+  ctx.fillStyle="#2B2A4C";ctx.beginPath();ctx.arc(spots[3].x,spots[3].y,14,0,6.283);ctx.fill();ctx.stroke();
+  ctx.strokeStyle=INK;ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(spots[3].x+20,spots[3].y-20);ctx.lineTo(spots[3].x+34,spots[3].y-40);ctx.stroke();
+  label("노래",spots[3].x,spots[3].y-52,16,INK,PAPER);
+  if(home&&radioOn[home.i]){
+    for(var n=0;n<3;n++){
+      var t=(now/650+n*1.7)%5;
+      label(n%2?"♫":"♪",spots[3].x+16+Math.sin(t)*10,spots[3].y-30-t*16,18,SUN);
+    }
+  }
+  sign(houseName(home),RW/2,58,"#FFF8EC");
+  var list=[];
+  peerState.forEach(function(p){if((p.sc|0)===2&&home&&p.hi===home.i)list.push(p);});
+  if(me.joined)list.push(me);
+  list.sort(function(a,b){return a.y-b.y;});
+  for(var i=0;i<list.length;i++){
+    var e=list[i],doing=e===me?homeAct:(e.ac|0);
+    drawChar(e,now,e===me,false);
+    if(doing===1)label("공부",e.x,e.y-78,14,INK,PAPER);
+    else if(doing===2)label("zzz",e.x+16,e.y-86+Math.sin(now/280+e.x)*3,16,SKY,PAPER);
+  }
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  drawJoy();
+}
 function draw(g,now){
+  if(scene==="home"){drawHome(now);return;}
   if(scene==="yard"){drawYard(g,now);return;}
   ctx.setTransform(dpr,0,0,dpr,0,0);ctx.fillStyle="#A9DDB0";ctx.fillRect(0,0,vw,vh);
   var cx=clamp(cam.x,Math.min(W/2,vw/2/zoom),Math.max(W/2,W-vw/2/zoom)),cy=clamp(cam.y,Math.min(H/2,vh/2/zoom),Math.max(H/2,H-vh/2/zoom));
