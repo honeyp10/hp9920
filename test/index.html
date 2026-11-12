@@ -230,7 +230,7 @@ var lanterns=[],myWish="",myWishTs=0;
 var oxIn=-1,oxJudged=-1,oxMsg=null;
 var myStars=0,myStarR=-1,starJudged=-1,starMsg=null,starGot={};
 var tagJoin=-1,tagOut=-1,tagJudged=-1,tagMsg=null;
-var scene="plaza",YW=2200,YH=1600,GS=80,tool="flower",yard=[],yardSeen={},yardDirty=true,hopUntil=0,aim=null;
+var scene="plaza",YW=2200,YH=1600,GS=80,tool="",yard=[],yardSeen={},yardDirty=true,hopUntil=0,aim=null;
 var RW=1200,RH=800,home=null,homeAct=0,studyMs=0,studyNoted=false,radioOn={};
 var audioCtx=null,musicNode=null;
 var myId=Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4);
@@ -333,6 +333,10 @@ function saveDecor(){
   save("decor",{w:myLook.w,a:myLook.a.map(function(p){return {k:p.k,x:p.x,y:p.y};})});
   decorDirty=true;
 }
+function cancelTool(){
+  if(!tool)return;
+  tool="";renderTools();toast("설치를 취소했어요");
+}
 function renderTools(){
   var host=$("buildBar");if(!host)return;host.textContent="";
   var inside=scene==="home";
@@ -340,12 +344,14 @@ function renderTools(){
     b.setAttribute("aria-pressed",String(group==="wall"?myLook.w===k:tool===k));
     b.addEventListener("click",function(){
       if(group==="wall"){myLook.w=k;saveDecor();var pal=ROOM_PAL[k];toast(pal.mood+" · "+pal.line);}
-      else tool=k;
+      else{tool=tool===k?"":k;if(!tool)toast("설치를 취소했어요");}
       renderTools();
     });host.appendChild(b);}
   if(inside){WALLS.forEach(function(p){add(p.k,p.n,"wall");});INSIDE.forEach(function(p){add(p.k,p.n);});}
   else PIECES.forEach(function(p){add(p.k,p.n);});
   add("erase","치우기");
+  var c=document.createElement("button");c.type="button";c.className="btn plain";c.textContent="취소";
+  c.addEventListener("click",cancelTool);host.appendChild(c);
 }
 function worldSize(){
   if(scene==="home")return {w:RW,h:RH};
@@ -435,14 +441,14 @@ function enterHouse(p){
   home={i:p.i,own:p.own,nm:p.nm||"",x:p.x,y:p.y};
   scene="home";homeAct=0;studyMs=0;studyNoted=false;
   me.x=220;me.y=RH/2;me.fx=1;me.fy=0;cam.x=me.x;cam.y=me.y;hopUntil=Date.now()+700;
-  toast(p.own===myId?"내 집이에요. 아래에서 벽지와 가구를 고르세요":houseName(home)+"이에요");
-  if(p.own===myId){if(!INSIDE_SET[tool]&&tool!=="erase")tool="plant";renderTools();}
+  toast(p.own===myId?"내 집이에요. 가구를 고른 뒤에 놓고, 취소로 빠져나와요":houseName(home)+"이에요");
+  if(p.own===myId){if(tool&&!INSIDE_SET[tool]&&tool!=="erase")tool="";renderTools();}
   syncRoomMusic();
 }
 function leaveHouse(){
   var hx=home?home.x:640,hy=home?home.y+52:YH/2;
   scene="yard";home=null;homeAct=0;stopMusic();
-  if(!PIECE_SET[tool])tool="flower";
+  if(tool&&!PIECE_SET[tool]&&tool!=="erase")tool="";
   renderTools();
   me.x=clamp(hx,320,YW-40);me.y=clamp(hy,90,YH-40);me.fx=0;me.fy=1;cam.x=me.x;cam.y=me.y;hopUntil=Date.now()+700;
   toast("마당으로 나왔어요");
@@ -548,7 +554,9 @@ function renderHats(){
 }
 
 /* ---------- input ---------- */
-addEventListener("keydown",function(e){if(e.target&&e.target.tagName==="INPUT")return;keys[e.key.toLowerCase()]=true;
+addEventListener("keydown",function(e){if(e.target&&e.target.tagName==="INPUT")return;
+  if(e.key==="Escape"){cancelTool();return;}
+  keys[e.key.toLowerCase()]=true;
   if(["arrowup","arrowdown","arrowleft","arrowright"," "].indexOf(e.key.toLowerCase())>=0)e.preventDefault();});
 addEventListener("keyup",function(e){keys[e.key.toLowerCase()]=false;});
 addEventListener("blur",function(){keys={};joy=null;});
@@ -561,6 +569,7 @@ function endJoy(e){
   if(tap)tryPlace(ox,oy);
 }
 cv.addEventListener("pointerup",endJoy);cv.addEventListener("pointercancel",endJoy);
+cv.addEventListener("contextmenu",function(e){e.preventDefault();cancelTool();});
 
 Array.prototype.forEach.call(document.querySelectorAll("[data-emote]"),function(b){
   b.addEventListener("click",function(){me.emote=+b.getAttribute("data-emote");me.emoteUntil=Date.now()+2500;me.emoteTs=Date.now();});});
@@ -798,12 +807,12 @@ function update(dt,now){
       else if(sp&&sp.id==="study"){sub=mood.fit==="study"?mood.line:"책상에 앉아 공부해요";actLabel="공부하기";}
       else if(sp&&sp.id==="rest"){sub=mood.fit==="rest"?mood.line:"침대에서 쉬어요";actLabel="쉬기";}
       else if(sp&&sp.id==="song"){sub=mood.fit==="song"?mood.line:(radioOn[home.i]?"노래가 집 안을 채워요":"라디오를 켤 수 있어요");actLabel=radioOn[home.i]?"노래 끄기":"노래 듣기";}
-      else sub=(home.own===myId?"짧게 누르면 집 안을 꾸며요 · ":"")+mood.mood+" · "+mood.line+(radioOn[home.i]?" · 노래가 나와요":"");
+      else sub=(tool?"설치 중 · 같은 버튼이나 취소로 빠져나와요 · ":(home.own===myId?"가구를 고르면 꾸며요 · ":""))+mood.mood+" · "+mood.line+(radioOn[home.i]?" · 노래가 나와요":"");
     }
   }else if(scene==="yard"){
     var nh=nearHouse();
     if(nh){title=houseName(nh);sub="들어가서 공부하고, 쉬고, 노래를 들어요";actLabel="들어가기";}
-    else{title="메인 게임장";sub=(tool==="erase"?"치울 칸을 짧게 누르세요":"짧게 누르면 놓고, 끌면 이동해요")+" · 집은 한 채 · 왼쪽 길로 광장";}
+    else{title="메인 게임장";sub=(tool?(tool==="erase"?"치울 칸을 짧게 누르세요":"짧게 누르면 놓아요")+" · 취소로 빠져나와요":"아래 가구를 고르면 설치해요")+" · 집은 한 채 · 왼쪽 길로 광장";}
   }else if(mz==="ox"){
     if(!ox.reveal){title="Q. "+ox.q[0];sub="왼쪽이 O, 오른쪽이 X · "+Math.ceil((OX_Q-ox.ph)/1000)+"초 남음";}
     else{title="정답은 "+(ox.q[1]?"O":"X")+"! "+ox.q[2];sub=(oxMsg&&oxMsg.r===ox.r?oxMsg.t+" · ":"")+"다음 문제까지 "+Math.ceil((OX_T-ox.ph)/1000)+"초";}
@@ -826,6 +835,7 @@ function update(dt,now){
   else if(mz==="wish"){if(ab.textContent!=="소원 등불 띄우기")ab.textContent="소원 등불 띄우기";ab.hidden=false;}
   else ab.hidden=true;
   var bar=$("buildBar");if(bar)bar.hidden=!(scene==="yard"||(scene==="home"&&home&&home.own===myId));
+  cv.style.cursor=tool&&(scene==="yard"||(scene==="home"&&home&&home.own===myId))?"crosshair":"";
   if(toastUntil&&now>toastUntil){$("toast").hidden=true;toastUntil=0;}
   var total=(me.joined?1:0)+bots.length+peerState.size;
   var where=scene==="home"?"집 · ":scene==="yard"?"게임장 · ":"";
@@ -979,7 +989,7 @@ function drawProp(p,alpha){
   else if(p.k==="tree"){drawTree({x:x,y:y+8,s:.82});}
   else if(p.k==="bench"){ctx.fillStyle="#9A6B4B";rr(x-26,y-6,52,12,4);ctx.fill();ctx.stroke();rr(x-22,y-16,8,14,2);ctx.fill();ctx.stroke();rr(x+14,y-16,8,14,2);ctx.fill();ctx.stroke();}
   else if(p.k==="lamp"){ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(x,y+8);ctx.lineTo(x,y-26);ctx.stroke();ctx.fillStyle=SUN;ctx.lineWidth=3;ctx.beginPath();ctx.arc(x,y-32,9,0,6.283);ctx.fill();ctx.stroke();ctx.fillStyle="rgba(255,201,77,.28)";ctx.beginPath();ctx.arc(x,y-32,20,0,6.283);ctx.fill();}
-  else if(p.k==="house"){ctx.fillStyle=PAPER;rr(x-26,y-16,52,34,6);ctx.fill();ctx.stroke();ctx.fillStyle=CORAL;ctx.beginPath();ctx.moveTo(x-32,y-12);ctx.lineTo(x,y-38);ctx.lineTo(x+32,y-12);ctx.closePath();ctx.fill();ctx.stroke();ctx.fillStyle="#9A6B4B";rr(x-7,y,14,18,3);ctx.fill();ctx.stroke();ctx.fillStyle=SKY;rr(x+8,y-10,12,10,2);ctx.fill();ctx.stroke();}
+  else if(p.k==="house"){groundShadow(x,y+16,34,11);box3(x,y+14,54,38,26,PAPER,"#FFF8EC","#E4D3BC");ctx.fillStyle="#E15A48";ctx.beginPath();ctx.moveTo(x-34,y-20);ctx.lineTo(x,y-50);ctx.lineTo(x+34,y-20);ctx.closePath();ctx.fill();ctx.stroke();ctx.fillStyle="#B84336";ctx.beginPath();ctx.moveTo(x+34,y-20);ctx.lineTo(x,y-50);ctx.lineTo(x-18,y-64);ctx.lineTo(x+16,y-34);ctx.closePath();ctx.fill();ctx.stroke();ctx.fillStyle="#9A6B4B";rr(x-7,y-2,14,16,2);ctx.fill();ctx.stroke();ctx.fillStyle=SKY;rr(x+10,y-16,12,10,2);ctx.fill();ctx.stroke();}
   else if(p.k==="well"){ctx.fillStyle="#D5D8E0";ctx.beginPath();ctx.ellipse(x,y+2,18,9,0,0,6.283);ctx.fill();ctx.stroke();ctx.fillStyle="#8FC6F5";ctx.beginPath();ctx.ellipse(x,y+2,9,4,0,0,6.283);ctx.fill();ctx.strokeStyle="#C4A27A";ctx.beginPath();ctx.moveTo(x-18,y-2);ctx.lineTo(x,y-20);ctx.lineTo(x+18,y-2);ctx.stroke();}
   ctx.restore();
 }
@@ -1036,15 +1046,67 @@ function drawYard(g,now){
   if(me.joined){ctx.fillStyle=CORAL;ctx.beginPath();ctx.arc(x0+me.x*sc,y0+me.y*sc,4,0,6.283);ctx.fill();}
   drawJoy();
 }
+function shade(hex,amt){
+  if(!hex||hex.charAt(0)!=="#"||hex.length<7)return hex||"#888";
+  var n=parseInt(hex.slice(1,7),16),r=(n>>16)&255,g=(n>>8)&255,b=n&255;
+  function ch(v){return Math.max(0,Math.min(255,Math.round(amt<0?v*(1+amt):v+(255-v)*amt)));}
+  function h(v){return ("0"+v.toString(16)).slice(-2);}
+  return "#"+h(ch(r))+h(ch(g))+h(ch(b));
+}
+function poly(pts,fill){
+  ctx.beginPath();ctx.moveTo(pts[0][0],pts[0][1]);
+  for(var i=1;i<pts.length;i++)ctx.lineTo(pts[i][0],pts[i][1]);
+  ctx.closePath();ctx.fillStyle=fill;ctx.fill();ctx.strokeStyle=INK;ctx.lineWidth=2.25;ctx.lineJoin="round";ctx.stroke();
+}
+function box3(x,y,w,h,d,front,top,side){
+  var dx=-d*0.62,dy=-d*0.48;
+  var f=front,t=top||shade(f,0.16),s=side||shade(f,-0.28);
+  poly([[x+w/2,y],[x+w/2+dx,y+dy],[x+w/2+dx,y-h+dy],[x+w/2,y-h]],s);
+  poly([[x-w/2,y-h],[x+w/2,y-h],[x+w/2+dx,y-h+dy],[x-w/2+dx,y-h+dy]],t);
+  poly([[x-w/2,y],[x+w/2,y],[x+w/2,y-h],[x-w/2,y-h]],f);
+}
+function groundShadow(x,y,rx,ry){
+  ctx.save();ctx.fillStyle="rgba(43,42,76,.18)";ctx.beginPath();ctx.ellipse(x+2,y+3,rx,ry,0,0,6.283);ctx.fill();ctx.restore();
+}
 function drawInside(p,alpha){
   ctx.save();ctx.globalAlpha=alpha;var x=p.x,y=p.y;
-  ctx.lineWidth=3;ctx.strokeStyle=INK;ctx.lineJoin="round";ctx.lineCap="round";
-  if(p.k==="rug"){ctx.fillStyle=inkPal.rug||"#E8A0B0";ctx.beginPath();ctx.ellipse(x,y,46,26,0,0,6.283);ctx.fill();ctx.stroke();ctx.strokeStyle="rgba(43,42,76,.35)";ctx.beginPath();ctx.ellipse(x,y,28,14,0,0,6.283);ctx.stroke();}
-  else if(p.k==="plant"){ctx.fillStyle="#C4A27A";rr(x-12,y-2,24,16,4);ctx.fill();ctx.stroke();ctx.fillStyle="#5FBF7F";ctx.beginPath();ctx.arc(x-8,y-16,10,0,6.283);ctx.arc(x+8,y-14,9,0,6.283);ctx.arc(x,y-24,10,0,6.283);ctx.fill();ctx.stroke();}
-  else if(p.k==="frame"){ctx.fillStyle="#C4A27A";rr(x-22,y-26,44,36,4);ctx.fill();ctx.stroke();ctx.fillStyle=SKY;rr(x-16,y-20,32,24,2);ctx.fill();ctx.fillStyle="#7BC67E";ctx.beginPath();ctx.moveTo(x-16,y+4);ctx.lineTo(x-4,y-8);ctx.lineTo(x+16,y+4);ctx.fill();ctx.fillStyle=SUN;ctx.beginPath();ctx.arc(x+8,y-12,4,0,6.283);ctx.fill();}
-  else if(p.k==="cushion"){ctx.fillStyle=inkPal.rug||CORAL;ctx.beginPath();ctx.ellipse(x,y,22,14,0,0,6.283);ctx.fill();ctx.stroke();ctx.beginPath();ctx.moveTo(x,y-8);ctx.lineTo(x,y+8);ctx.stroke();}
-  else if(p.k==="shelf"){ctx.fillStyle="#9A6B4B";rr(x-28,y-4,56,10,2);ctx.fill();ctx.stroke();ctx.fillStyle="#6FB8FF";rr(x-22,y-22,10,16,1);ctx.fill();ctx.stroke();ctx.fillStyle=CORAL;rr(x-8,y-26,10,20,1);ctx.fill();ctx.stroke();ctx.fillStyle=SUN;rr(x+6,y-18,10,12,1);ctx.fill();ctx.stroke();}
-  else if(p.k==="stand"){ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(x,y+10);ctx.lineTo(x,y-28);ctx.stroke();ctx.fillStyle=SUN;ctx.lineWidth=3;ctx.beginPath();ctx.arc(x,y-34,10,0,6.283);ctx.fill();ctx.stroke();ctx.fillStyle="rgba(255,201,77,.3)";ctx.beginPath();ctx.arc(x,y-34,22,0,6.283);ctx.fill();}
+  ctx.lineWidth=2.25;ctx.strokeStyle=INK;ctx.lineJoin="round";ctx.lineCap="round";
+  if(p.k==="rug"){
+    groundShadow(x,y+4,50,18);
+    ctx.fillStyle=shade(inkPal.rug||"#E8A0B0",-0.18);ctx.beginPath();ctx.ellipse(x,y+6,48,20,0,0,6.283);ctx.fill();ctx.stroke();
+    ctx.fillStyle=inkPal.rug||"#E8A0B0";ctx.beginPath();ctx.ellipse(x-2,y,46,18,0,0,6.283);ctx.fill();ctx.stroke();
+    ctx.strokeStyle="rgba(43,42,76,.35)";ctx.beginPath();ctx.ellipse(x-2,y,28,10,0,0,6.283);ctx.stroke();
+  }else if(p.k==="plant"){
+    groundShadow(x,y+8,18,7);
+    box3(x,y+8,26,16,16,"#C4A27A","#E4C69A","#8C6240");
+    ctx.fillStyle="#3E9E5E";ctx.beginPath();ctx.ellipse(x-6,y-16,12,8,-0.4,0,6.283);ctx.fill();ctx.stroke();
+    ctx.fillStyle="#5FBF7F";ctx.beginPath();ctx.arc(x-8,y-22,10,0,6.283);ctx.arc(x+8,y-20,9,0,6.283);ctx.arc(x,y-30,11,0,6.283);ctx.fill();ctx.stroke();
+    ctx.fillStyle="rgba(255,255,255,.35)";ctx.beginPath();ctx.arc(x-4,y-34,3,0,6.283);ctx.fill();
+  }else if(p.k==="frame"){
+    box3(x,y+8,48,40,8,"#C4A27A","#E6C8A4","#8A6244");
+    ctx.fillStyle=inkPal.win||SKY;rr(x-16,y-22,30,22,2);ctx.fill();
+    ctx.fillStyle="#7BC67E";ctx.beginPath();ctx.moveTo(x-16,y);ctx.lineTo(x-4,y-12);ctx.lineTo(x+14,y);ctx.fill();
+    ctx.fillStyle=SUN;ctx.beginPath();ctx.arc(x+6,y-14,4,0,6.283);ctx.fill();
+  }else if(p.k==="cushion"){
+    var c=inkPal.rug||CORAL;
+    groundShadow(x,y+6,24,8);
+    ctx.fillStyle=shade(c,-0.22);ctx.beginPath();ctx.ellipse(x,y+5,22,12,0,0,6.283);ctx.fill();ctx.stroke();
+    ctx.fillStyle=c;ctx.beginPath();ctx.ellipse(x-1,y-2,22,12,0,0,6.283);ctx.fill();ctx.stroke();
+    ctx.beginPath();ctx.moveTo(x-1,y-10);ctx.lineTo(x-1,y+6);ctx.stroke();
+  }else if(p.k==="shelf"){
+    groundShadow(x,y+6,30,8);
+    box3(x,y+4,62,12,20,"#9A6B4B","#C4926A","#6B4630");
+    box3(x-16,y-8,10,18,12,"#6FB8FF","#D7ECFF","#3E86C4");
+    box3(x-2,y-8,10,22,12,CORAL,"#FFC2B8","#D4685C");
+    box3(x+14,y-8,10,14,12,SUN,"#FFE3A3","#E0A84A");
+  }else if(p.k==="stand"){
+    groundShadow(x,y+12,16,6);
+    box3(x,y+12,18,6,12,"#3E3A55","#6A657C","#2A2738");
+    ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(x,y+6);ctx.lineTo(x-2,y-30);ctx.stroke();
+    poly([[x-14,y-30],[x+12,y-30],[x+6,y-48],[x-8,y-48]],"#FFE3A3");
+    poly([[x+12,y-30],[x+6,y-48],[x+2,y-56],[x+10,y-38]],"#E0B85A");
+    ctx.fillStyle="rgba(255,201,77,.28)";ctx.beginPath();ctx.arc(x,y-36,22,0,6.283);ctx.fill();
+  }
   ctx.restore();
 }
 function roomLook(){
@@ -1059,28 +1121,46 @@ function drawHome(now){
   ctx.setTransform(dpr*zoom,0,0,dpr*zoom,dpr*(vw/2-cx*zoom),dpr*(vh/2-cy*zoom));
   var look=roomLook(),pal=ROOM_PAL[look.w]||ROOM_PAL.cream;
   inkPal=pal;
-  ctx.fillStyle=pal.floor;ctx.fillRect(0,0,RW,RH);
-  ctx.fillStyle=pal.top;ctx.fillRect(0,0,RW,78);
-  if(pal.wash){var grd=ctx.createRadialGradient(860,180,30,620,420,640);grd.addColorStop(0,pal.wash);grd.addColorStop(1,"rgba(0,0,0,0)");ctx.fillStyle=grd;ctx.fillRect(0,0,RW,RH);}
-  ctx.fillStyle=pal.win||SKY;ctx.strokeStyle=INK;ctx.lineWidth=4;rr(760,96,220,120,12);ctx.fill();ctx.stroke();
-  ctx.strokeStyle="rgba(255,255,255,.7)";ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(870,96);ctx.lineTo(870,216);ctx.moveTo(760,156);ctx.lineTo(980,156);ctx.stroke();
+  ctx.fillStyle=shade(pal.floor,-0.06);ctx.fillRect(0,0,RW,RH);
+  ctx.fillStyle=pal.floor;ctx.fillRect(78,168,RW,RH);
+  ctx.save();ctx.strokeStyle="rgba(43,42,76,.07)";ctx.lineWidth=1;
+  for(var py=196;py<RH;py+=32){ctx.beginPath();ctx.moveTo(86,py);ctx.lineTo(RW-8,py);ctx.stroke();}
+  ctx.restore();
+  var sg=ctx.createLinearGradient(0,168,0,214);sg.addColorStop(0,"rgba(43,42,76,.2)");sg.addColorStop(1,"rgba(43,42,76,0)");
+  ctx.fillStyle=sg;ctx.fillRect(78,168,RW,48);
+  ctx.fillStyle=pal.top;ctx.fillRect(0,36,78,RH);
+  poly([[78,36],[78,RH],[96,RH-16],[96,22]],shade(pal.top,-0.22));
+  ctx.fillStyle=pal.top;ctx.fillRect(78,36,RW-78,132);
+  poly([[78,36],[RW,36],[RW-22,18],[56,18]],shade(pal.top,0.14));
+  poly([[RW,36],[RW-22,18],[RW-22,150],[RW,168]],shade(pal.top,-0.24));
+  if(pal.wash){var grd=ctx.createRadialGradient(900,120,20,640,360,620);grd.addColorStop(0,pal.wash);grd.addColorStop(1,"rgba(0,0,0,0)");ctx.fillStyle=grd;ctx.fillRect(0,0,RW,RH);}
+  box3(860,214,196,78,16,shade(pal.win||SKY,-0.08),shade(pal.win||SKY,0.2),"#8AA4B8");
+  ctx.fillStyle=pal.win||SKY;rr(788,118,150,62,4);ctx.fill();ctx.strokeStyle="rgba(255,255,255,.65)";ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(863,118);ctx.lineTo(863,180);ctx.moveTo(788,149);ctx.lineTo(938,149);ctx.stroke();
+  box3(860,214,210,10,22,"#E7D3B0","#FFF8EC","#C4A27A");
+  groundShadow(70,RH/2+70,26,18);
+  box3(52,RH/2+78,36,150,16,"#C4A27A","#E6C8A4","#8A6244");
+  ctx.fillStyle="#9A6B4B";rr(40,RH/2+8,16,62,3);ctx.fill();ctx.strokeStyle=INK;ctx.lineWidth=2;ctx.stroke();
+  label("마당",118,RH/2-110,18,INK,PAPER);
   for(var r=0;r<look.a.length;r++) if(look.a[r].k==="rug")drawInside(look.a[r],1);
-  ctx.fillStyle=pal.rug;rr(430,430,280,150,70);ctx.fill();ctx.strokeStyle=INK;ctx.lineWidth=3;ctx.stroke();
-  ctx.fillStyle="#C4A27A";rr(36,RH/2-78,28,156,8);ctx.fill();ctx.strokeStyle=INK;ctx.lineWidth=4;ctx.stroke();
-  label("마당",118,RH/2-96,18,INK,PAPER);
+  groundShadow(620,560,120,28);
+  ctx.fillStyle=shade(pal.rug,-0.12);ctx.beginPath();ctx.ellipse(620,568,150,42,0,0,6.283);ctx.fill();
+  ctx.fillStyle=pal.rug;ctx.strokeStyle=INK;ctx.lineWidth=2.5;ctx.beginPath();ctx.ellipse(612,552,146,38,0,0,6.283);ctx.fill();ctx.stroke();
   var spots=homeSpots();
-  ctx.fillStyle="#9A6B4B";rr(spots[1].x-90,spots[1].y-28,150,56,8);ctx.fill();ctx.stroke();
-  ctx.fillStyle=PAPER;rr(spots[1].x-20,spots[1].y-18,46,30,4);ctx.fill();ctx.stroke();
-  ctx.fillStyle=SUN;ctx.beginPath();ctx.arc(spots[1].x+48,spots[1].y-8,8,0,6.283);ctx.fill();ctx.stroke();
-  label("공부",spots[1].x-8,spots[1].y-48,16,INK,PAPER);
-  ctx.fillStyle=PAPER;rr(spots[2].x-70,spots[2].y-24,140,70,16);ctx.fill();ctx.stroke();
-  ctx.fillStyle="#9FD0F5";rr(spots[2].x-58,spots[2].y-14,78,40,10);ctx.fill();ctx.stroke();
-  ctx.fillStyle=CORAL;rr(spots[2].x-46,spots[2].y-36,36,24,8);ctx.fill();ctx.stroke();
-  label("쉬기",spots[2].x,spots[2].y-52,16,INK,PAPER);
-  ctx.fillStyle="#3E3A55";rr(spots[3].x-36,spots[3].y-28,72,56,8);ctx.fill();ctx.strokeStyle=INK;ctx.stroke();
-  ctx.fillStyle="#2B2A4C";ctx.beginPath();ctx.arc(spots[3].x,spots[3].y,14,0,6.283);ctx.fill();ctx.stroke();
-  ctx.strokeStyle=INK;ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(spots[3].x+20,spots[3].y-20);ctx.lineTo(spots[3].x+34,spots[3].y-40);ctx.stroke();
-  label("노래",spots[3].x,spots[3].y-52,16,INK,PAPER);
+  groundShadow(spots[1].x-16,spots[1].y+22,78,16);
+  box3(spots[1].x-16,spots[1].y+22,156,48,40,"#9A6B4B","#C4926A","#6E4A30");
+  box3(spots[1].x-28,spots[1].y-22,40,8,22,"#F4E7D4","#FFF8EC","#D9C4A4");
+  box3(spots[1].x+36,spots[1].y-10,16,24,14,"#E7C07A","#FFE3A3","#B8904A");
+  label("공부",spots[1].x-16,spots[1].y-78,16,INK,PAPER);
+  groundShadow(spots[2].x,spots[2].y+28,78,18);
+  box3(spots[2].x,spots[2].y+26,148,28,62,"#E7D3C0","#F7E7D6","#C4B09A");
+  box3(spots[2].x,spots[2].y+10,128,22,50,"#F7FBFF","#FFFFFF","#D5E4F2");
+  box3(spots[2].x-42,spots[2].y-4,42,16,22,CORAL,"#FFC2B8","#D4685C");
+  label("쉬기",spots[2].x,spots[2].y-70,16,INK,PAPER);
+  groundShadow(spots[3].x,spots[3].y+20,40,12);
+  box3(spots[3].x,spots[3].y+18,78,46,30,"#3E3A55","#5C5870","#2A2738");
+  ctx.fillStyle="#1B1A28";ctx.beginPath();ctx.arc(spots[3].x-6,spots[3].y-2,11,0,6.283);ctx.fill();ctx.strokeStyle=INK;ctx.lineWidth=2;ctx.stroke();
+  ctx.strokeStyle="#FFE3A3";ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(spots[3].x+18,spots[3].y-28);ctx.lineTo(spots[3].x+30,spots[3].y-48);ctx.stroke();
+  label("노래",spots[3].x,spots[3].y-64,16,INK,PAPER);
   for(r=0;r<look.a.length;r++) if(look.a[r].k!=="rug")drawInside(look.a[r],1);
   if(home&&radioOn[home.i]){
     for(var n=0;n<3;n++){
